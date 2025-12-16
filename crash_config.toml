@@ -1,0 +1,18 @@
+[general]
+# Path to Crash Bandicoot ELF file
+input = "../games/crash_bandicoot/SLES_503.86"
+
+# Path to output directory
+output = "crash_output/"
+
+# Single file output mode
+single_file_output = true
+
+# Functions to stub
+stubs = ["printf", "malloc", "free", "memcpy", "memset", "strncpy", "sprintf"]
+
+# Functions to skip
+skip = ["abort", "exit", "_exit"]
+
+[patches]
+instructions = []

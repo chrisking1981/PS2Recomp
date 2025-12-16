@@ -1,0 +1,19 @@
+[general]
+# Path to Sly Cooper ELF file
+input = "../games/sly_cooper/SCUS_971.98"
+
+# Path to output directory
+output = "sly_output/"
+
+# Single file output mode (true = one big file, false = one file per function)
+single_file_output = true
+
+# Functions to stub (these will generate empty implementations)
+stubs = ["printf", "malloc", "free", "memcpy", "memset", "strncpy", "sprintf"]
+
+# Functions to skip (these will not be recompiled)
+skip = ["abort", "exit", "_exit"]
+
+# Patches to apply during recompilation
+[patches]
+instructions = []
