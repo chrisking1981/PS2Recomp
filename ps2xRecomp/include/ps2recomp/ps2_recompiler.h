@@ -49,6 +49,7 @@ namespace ps2recomp
         bool generateStubHeader();
         bool writeToFile(const std::string &path, const std::string &content);
         std::filesystem::path getOutputPath(const Function &function) const;
+        std::vector<Function> loadExternalSymbols(const std::string &symbolsPath);
     };
 
 }

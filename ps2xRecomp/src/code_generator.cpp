@@ -400,12 +400,15 @@ namespace ps2recomp
         ss << "    return _mm_loadu_si128((__m128i*)result);\n";
         ss << "}\n\n";
 
-        // PMFHL function implementations
-        ss << "#define PS2_PMFHL_LW(hi, lo) _mm_unpacklo_epi64(lo, hi)\n";
-        ss << "#define PS2_PMFHL_UW(hi, lo) _mm_unpackhi_epi64(lo, hi)\n";
-        ss << "#define PS2_PMFHL_SLW(hi, lo) _mm_packs_epi32(lo, hi)\n";
-        ss << "#define PS2_PMFHL_LH(hi, lo) _mm_shuffle_epi32(_mm_packs_epi32(lo, hi), _MM_SHUFFLE(3,1,2,0))\n";
-        ss << "#define PS2_PMFHL_SH(hi, lo) _mm_shufflehi_epi16(_mm_shufflelo_epi16(_mm_packs_epi32(lo, hi), _MM_SHUFFLE(3,1,2,0)), _MM_SHUFFLE(3,1,2,0))\n";
+        // PMFHL function implementations - convert uint64_t hi/lo to __m128i first
+        ss << "inline __m128i _ps2_pmfhl_combine(uint64_t hi, uint64_t lo) {\n";
+        ss << "    return _mm_set_epi64x(hi, lo);\n";
+        ss << "}\n";
+        ss << "#define PS2_PMFHL_LW(hi, lo) _ps2_pmfhl_combine(hi, lo)\n";
+        ss << "#define PS2_PMFHL_UW(hi, lo) _mm_unpackhi_epi64(_ps2_pmfhl_combine(hi, lo), _ps2_pmfhl_combine(hi, lo))\n";
+        ss << "#define PS2_PMFHL_SLW(hi, lo) _mm_packs_epi32(_mm_set_epi64x(0, lo), _mm_set_epi64x(0, hi))\n";
+        ss << "#define PS2_PMFHL_LH(hi, lo) _mm_shuffle_epi32(_mm_packs_epi32(_mm_set_epi64x(0, lo), _mm_set_epi64x(0, hi)), _MM_SHUFFLE(3,1,2,0))\n";
+        ss << "#define PS2_PMFHL_SH(hi, lo) _mm_shufflehi_epi16(_mm_shufflelo_epi16(_mm_packs_epi32(_mm_set_epi64x(0, lo), _mm_set_epi64x(0, hi)), _MM_SHUFFLE(3,1,2,0)), _MM_SHUFFLE(3,1,2,0))\n";
 
         ss << "// FPU (COP1) operations\n";
         ss << "#define FPU_ADD_S(a, b) ((float)(a) + (float)(b))\n";
@@ -496,7 +499,15 @@ namespace ps2recomp
         ss << "    {                                      \\\n";
         ss << "        if (reg_idx != 0)                  \\\n";
         ss << "            ctx_ptr->r[reg_idx] = (val); \\\n";
-        ss << "    } while (0)\n";
+        ss << "    } while (0)\n\n";
+
+        ss << "// Helper to reinterpret uint32_t as float without taking address of rvalue\n";
+        ss << "inline float uint32_to_float(uint32_t val) {\n";
+        ss << "    union { uint32_t u; float f; } conv;\n";
+        ss << "    conv.u = val;\n";
+        ss << "    return conv.f;\n";
+        ss << "}\n";
+        ss << "#define GPR_AS_FLOAT(ctx, reg) uint32_to_float(GPR_U32(ctx, reg))\n\n";
 
         ss << "#endif // PS2_RUNTIME_MACROS_H\n";
 

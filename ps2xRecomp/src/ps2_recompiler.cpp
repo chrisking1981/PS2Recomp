@@ -55,10 +55,21 @@ namespace ps2recomp
                 return false;
             }
 
-            m_functions = m_elfParser->extractFunctions();
-            m_symbols = m_elfParser->extractSymbols();
             m_sections = m_elfParser->getSections();
             m_relocations = m_elfParser->getRelocations();
+
+            // Check if we have an external symbols file (for stripped ELFs)
+            if (!m_config.symbolsPath.empty())
+            {
+                m_functions = loadExternalSymbols(m_config.symbolsPath);
+                m_symbols.clear(); // External symbols file provides functions directly
+                std::cout << "Loaded " << m_functions.size() << " functions from external symbols file." << std::endl;
+            }
+            else
+            {
+                m_functions = m_elfParser->extractFunctions();
+                m_symbols = m_elfParser->extractSymbols();
+            }
 
             std::cout << "Extracted " << m_functions.size() << " functions, "
                       << m_symbols.size() << " symbols, "
@@ -442,5 +453,81 @@ namespace ps2recomp
         outputPath /= safeName + ".cpp";
 
         return outputPath;
+    }
+
+    std::vector<Function> PS2Recompiler::loadExternalSymbols(const std::string &symbolsPath)
+    {
+        std::vector<Function> functions;
+        std::ifstream file(symbolsPath);
+
+        if (!file.is_open())
+        {
+            std::cerr << "Failed to open symbols file: " << symbolsPath << std::endl;
+            return functions;
+        }
+
+        std::string line;
+        while (std::getline(file, line))
+        {
+            // Skip empty lines and comments
+            if (line.empty() || line[0] == '#')
+            {
+                continue;
+            }
+
+            // Parse format: address size name
+            // Example: 0x00100008      176 func_00100008
+            std::istringstream iss(line);
+            std::string addressStr;
+            uint32_t size;
+            std::string name;
+
+            if (!(iss >> addressStr >> size >> name))
+            {
+                continue; // Skip malformed lines
+            }
+
+            // Parse address (hex)
+            uint32_t address;
+            try
+            {
+                address = std::stoul(addressStr, nullptr, 0);
+            }
+            catch (...)
+            {
+                std::cerr << "Failed to parse address: " << addressStr << std::endl;
+                continue;
+            }
+
+            // Skip zero-size functions
+            if (size == 0)
+            {
+                continue;
+            }
+
+            // Verify the address is valid in the ELF
+            if (!m_elfParser->isValidAddress(address))
+            {
+                std::cerr << "Warning: Symbol address 0x" << std::hex << address
+                          << " is not valid in ELF, skipping " << name << std::endl;
+                continue;
+            }
+
+            Function func;
+            func.name = name;
+            func.start = address;
+            func.end = address + size;
+            func.isRecompiled = false;
+            func.isStub = false;
+
+            functions.push_back(func);
+        }
+
+        // Sort by start address
+        std::sort(functions.begin(), functions.end(),
+                  [](const Function &a, const Function &b)
+                  { return a.start < b.start; });
+
+        return functions;
     }
 }

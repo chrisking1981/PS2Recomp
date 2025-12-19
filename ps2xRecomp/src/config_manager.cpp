@@ -30,6 +30,12 @@ namespace ps2recomp
 
             config.skipFunctions = toml::find<std::vector<std::string>>(data, "general", "skip");
 
+            // Optional: external symbols file for stripped ELFs
+            if (data.at("general").contains("symbols"))
+            {
+                config.symbolsPath = toml::find<std::string>(data, "general", "symbols");
+            }
+
             if (data.contains("patches") && data.at("patches").is_table())
             {
                 const auto &patches = toml::find(data, "patches");
