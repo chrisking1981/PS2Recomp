@@ -7,4 +7,4 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_subdirectory("ps2xRecomp")
 add_subdirectory("ps2xRuntime")
 add_subdirectory("ps2xAnalyzer")
-add_subdirectory("sly_runner")
+# add_subdirectory("sly_runner")  # Disabled - folder doesn't exist

@@ -3,7 +3,7 @@
 input = "../games/crash_bandicoot/SLES_503.86"
 
 # Path to output directory
-output = "crash_output/"
+output = "../games/crash_bandicoot/output/"
 
 # Single file output mode
 single_file_output = true
