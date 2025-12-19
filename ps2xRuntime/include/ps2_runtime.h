@@ -142,6 +142,8 @@ struct alignas(16) R5900Context
     uint32_t vu0_fbrst4;    // FBRST4
     uint32_t vu0_itop;
     uint32_t vu0_info;
+    uint32_t vu0_xitop; // VU0 XITOP - input ITOP for VIF/VU sync
+    uint32_t vu0_pc;    // VU0 PC - program counter for micro mode
 
     float vu0_cf[4]; // VU0 FMAC control floating-point registers
 
@@ -248,6 +250,8 @@ struct alignas(16) R5900Context
         vu0_vpu_stat4 = 0;
         vu0_itop = 0;
         vu0_info = 0;
+        vu0_xitop = 0;
+        vu0_pc = 0;
 
         // Reset COP1 state
         fcr31 = 0;
