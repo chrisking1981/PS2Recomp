@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace ps2recomp
 {
@@ -18,10 +20,19 @@ namespace ps2recomp
         std::string generateFunction(const Function &function, const std::vector<Instruction> &instructions, const bool &useHeaders);
         std::string generateFunctionRegistration(const std::vector<Function> &functions, const std::map<uint32_t, std::string> &stubs);
         std::string generateMacroHeader();
-        std::string handleBranchDelaySlots(const Instruction &branchInst, const Instruction &delaySlot);
+        std::string handleBranchDelaySlots(const Instruction &branchInst, const Instruction &delaySlot,
+            const Function &function, const std::unordered_set<uint32_t> &internalTargets);
+
+        // Set renamed function mappings (address -> new name)
+        void setRenamedFunctions(const std::unordered_map<uint32_t, std::string> &renames);
+
+        // Collect all internal branch targets within a function
+        std::unordered_set<uint32_t> collectInternalBranchTargets(
+            const Function &function, const std::vector<Instruction> &instructions);
 
     private:
         std::vector<Symbol> m_symbols;
+        std::unordered_map<uint32_t, std::string> m_renamedFunctions;
 
         std::string translateInstruction(const Instruction &inst);
         std::string translateMMIInstruction(const Instruction &inst);
@@ -98,6 +109,7 @@ namespace ps2recomp
                                             const std::vector<JumpTableEntry> &entries);
 
         Symbol *findSymbolByAddress(uint32_t address);
+        std::string getFunctionName(uint32_t address);
     };
 
 }

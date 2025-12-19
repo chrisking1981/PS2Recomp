@@ -13,7 +13,31 @@ namespace ps2recomp
     {
     }
 
-    std::string CodeGenerator::handleBranchDelaySlots(const Instruction &branchInst, const Instruction &delaySlot)
+    void CodeGenerator::setRenamedFunctions(const std::unordered_map<uint32_t, std::string> &renames)
+    {
+        m_renamedFunctions = renames;
+    }
+
+    // Helper to get the (possibly renamed) function name for an address
+    std::string CodeGenerator::getFunctionName(uint32_t address)
+    {
+        // Check if this address has a renamed function
+        auto it = m_renamedFunctions.find(address);
+        if (it != m_renamedFunctions.end())
+        {
+            return it->second;
+        }
+        // Fall back to symbol lookup
+        Symbol *sym = findSymbolByAddress(address);
+        if (sym && sym->isFunction)
+        {
+            return sym->name;
+        }
+        return "";
+    }
+
+    std::string CodeGenerator::handleBranchDelaySlots(const Instruction &branchInst, const Instruction &delaySlot,
+        const Function &function, const std::unordered_set<uint32_t> &internalTargets)
     {
         std::stringstream ss;
         bool hasValidDelaySlot = (delaySlot.raw != 0);
@@ -34,10 +58,10 @@ namespace ps2recomp
                 ss << "    " << delaySlotCode << "\n";
             }
             uint32_t target = (branchInst.address & 0xF0000000) | (branchInst.target << 2);
-            Symbol *sym = findSymbolByAddress(target);
-            if (sym && sym->isFunction)
+            std::string funcName = getFunctionName(target);
+            if (!funcName.empty())
             {
-                ss << "    " << sym->name << "(rdram, ctx, runtime); return;\n";
+                ss << "    " << funcName << "(rdram, ctx, runtime); return;\n";
             }
             else
             {
@@ -164,12 +188,20 @@ namespace ps2recomp
             int32_t offset = branchInst.simmediate << 2;
             uint32_t target = branchInst.address + 4 + offset;
 
-            Symbol *sym = findSymbolByAddress(target);
+            std::string funcName = getFunctionName(target);
             std::string targetAction;
 
-            if (sym && sym->isFunction)
+            // Check if this is an internal branch target (use goto) or external (use function call/pc set)
+            bool isInternalTarget = (internalTargets.find(target) != internalTargets.end());
+
+            if (!funcName.empty())
             {
-                targetAction = fmt::format("{}(rdram, ctx, runtime); return;", sym->name);
+                targetAction = fmt::format("{}(rdram, ctx, runtime); return;", funcName);
+            }
+            else if (isInternalTarget)
+            {
+                // Use goto for internal branch targets
+                targetAction = fmt::format("goto label_{:x};", target);
             }
             else
             {
@@ -471,6 +503,36 @@ namespace ps2recomp
         return ss.str();
     }
 
+    // Collect all internal branch targets within a function
+    std::unordered_set<uint32_t> CodeGenerator::collectInternalBranchTargets(
+        const Function &function, const std::vector<Instruction> &instructions)
+    {
+        std::unordered_set<uint32_t> targets;
+
+        for (const auto &inst : instructions)
+        {
+            if (inst.isBranch && inst.opcode != OPCODE_J && inst.opcode != OPCODE_JAL)
+            {
+                // Calculate branch target
+                int32_t offset = inst.simmediate << 2;
+                uint32_t target = inst.address + 4 + offset;
+
+                // Check if target is within this function
+                if (target >= function.start && target < function.end)
+                {
+                    // Check if target is NOT a known function (internal jump)
+                    std::string funcName = getFunctionName(target);
+                    if (funcName.empty())
+                    {
+                        targets.insert(target);
+                    }
+                }
+            }
+        }
+
+        return targets;
+    }
+
     std::string CodeGenerator::generateFunction(const Function &function, const std::vector<Instruction> &instructions, const bool &useHeaders)
     {
         std::stringstream ss;
@@ -483,6 +545,9 @@ namespace ps2recomp
             ss << "#include \"ps2_recompiled_stubs.h\"\n\n";
         }
 
+        // Collect internal branch targets for this function
+        std::unordered_set<uint32_t> internalTargets = collectInternalBranchTargets(function, instructions);
+
         ss << "// Function: " << function.name << "\n";
         ss << "// Address: 0x" << std::hex << function.start << " - 0x" << function.end << std::dec << "\n";
         ss << "void " << function.name << "(uint8_t* rdram, R5900Context* ctx, PS2Runtime *runtime) {\n\n";
@@ -491,6 +556,12 @@ namespace ps2recomp
         {
             const Instruction &inst = instructions[i];
 
+            // Generate label if this address is a branch target
+            if (internalTargets.find(inst.address) != internalTargets.end())
+            {
+                ss << "label_" << std::hex << inst.address << std::dec << ":\n";
+            }
+
             ss << "    // 0x" << std::hex << inst.address << ": 0x" << inst.raw << std::dec << "\n";
 
             try
@@ -498,7 +569,14 @@ namespace ps2recomp
                 if (inst.hasDelaySlot && i + 1 < instructions.size())
                 {
                     const Instruction &delaySlot = instructions[i + 1];
-                    ss << handleBranchDelaySlots(inst, delaySlot);
+
+                    // Check if the delay slot itself is a branch target - if so, generate a label for it
+                    if (internalTargets.find(delaySlot.address) != internalTargets.end())
+                    {
+                        ss << "label_" << std::hex << delaySlot.address << std::dec << ":\n";
+                    }
+
+                    ss << handleBranchDelaySlots(inst, delaySlot, function, internalTargets);
 
                     // Skip the delay slot instruction as we've already handled it
                     ++i;
@@ -1560,7 +1638,7 @@ namespace ps2recomp
             case VU0_CR_R:
                 return fmt::format("ctx->vu0_r = _mm_castsi128_ps(GPR_VEC(ctx, {}));", rt);
             case VU0_CR_I:
-                return fmt::format("ctx->vu0_i = *(float*)&GPR_U32(ctx, {});", rt);
+                return fmt::format("ctx->vu0_i = GPR_AS_FLOAT(ctx, {});", rt);
             case VU0_CR_TPC:
                 return fmt::format("ctx->vu0_tpc = GPR_U32(ctx, {});", rt);
             case VU0_CR_CMSAR0:
@@ -1594,7 +1672,7 @@ namespace ps2recomp
             case VU0_CR_CLIP2:
                 return fmt::format("ctx->vu0_clip_flags2 = GPR_U32(ctx, {});", rt);
             case VU0_CR_P:
-                return fmt::format("ctx->vu0_p = *(float*)&GPR_U32(ctx, {});", rt);
+                return fmt::format("ctx->vu0_p = GPR_AS_FLOAT(ctx, {});", rt);
             case VU0_CR_XITOP:
                 return fmt::format("ctx->vu0_xitop = GPR_U32(ctx, {}) & 0x3FF;", rt);
             case VU0_CR_ITOP:
@@ -2522,10 +2600,10 @@ namespace ps2recomp
         {
             ss << "    case " << entry.index << ": {\n";
 
-            Symbol *sym = findSymbolByAddress(entry.target);
-            if (sym && sym->isFunction)
+            std::string funcName = getFunctionName(entry.target);
+            if (!funcName.empty())
             {
-                ss << "        " << sym->name << "(rdram, ctx, runtime);\n";
+                ss << "        " << funcName << "(rdram, ctx, runtime);\n";
             }
             else
             {
