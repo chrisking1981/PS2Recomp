@@ -5,8 +5,29 @@
 #include <algorithm>
 #include <stdexcept>
 #include <filesystem>
+#include <set>
 
 namespace fs = std::filesystem;
+
+// Reserved C++ keywords and common conflicts that cannot be used as function names
+static const std::set<std::string> RESERVED_NAMES = {
+    // C++ keywords
+    "std", "new", "delete", "class", "struct", "union", "enum", "namespace",
+    "template", "typename", "typedef", "using", "virtual", "override", "final",
+    "public", "private", "protected", "friend", "inline", "static", "extern",
+    "const", "volatile", "mutable", "register", "auto", "explicit", "export",
+    "throw", "try", "catch", "noexcept", "nullptr", "true", "false", "bool",
+    "char", "short", "int", "long", "float", "double", "void", "signed", "unsigned",
+    "if", "else", "switch", "case", "default", "while", "do", "for", "break",
+    "continue", "return", "goto", "sizeof", "alignof", "decltype", "typeid",
+    "const_cast", "static_cast", "dynamic_cast", "reinterpret_cast",
+    "and", "or", "not", "xor", "bitand", "bitor", "compl", "and_eq", "or_eq",
+    "xor_eq", "not_eq",
+    // Common C library names that may conflict
+    "main", "printf", "scanf", "malloc", "free", "exit", "abort",
+    // Windows-specific
+    "near", "far", "pascal"
+};
 
 namespace ps2recomp
 {
@@ -44,8 +65,15 @@ namespace ps2recomp
                       << m_sections.size() << " sections, "
                       << m_relocations.size() << " relocations." << std::endl;
 
+            // Sanitize function names (fix duplicates and reserved C++ names)
+            // Note: This builds m_renamedFunctions but doesn't pass to code generator yet
+            sanitizeFunctionNames();
+
             m_decoder = std::make_unique<R5900Decoder>();
             m_codeGenerator = std::make_unique<CodeGenerator>(m_symbols);
+
+            // Now pass renamed functions to code generator
+            m_codeGenerator->setRenamedFunctions(m_renamedFunctions);
 
             fs::create_directories(m_config.outputPath);
 
@@ -326,6 +354,52 @@ namespace ps2recomp
     bool PS2Recompiler::shouldSkipFunction(const std::string &name) const
     {
         return m_skipFunctions.find(name) != m_skipFunctions.end();
+    }
+
+    void PS2Recompiler::sanitizeFunctionNames()
+    {
+        // Track how many times each name has been used
+        std::unordered_map<std::string, int> nameCount;
+
+        // First pass: count occurrences and rename reserved names
+        for (auto &function : m_functions)
+        {
+            std::string originalName = function.name;
+
+            // Check for reserved C++ names
+            if (RESERVED_NAMES.find(function.name) != RESERVED_NAMES.end())
+            {
+                function.name = function.name + "_func";
+                m_renamedFunctions[function.start] = function.name;
+                std::cout << "Renamed reserved name: " << originalName
+                          << " -> " << function.name
+                          << " (at 0x" << std::hex << function.start << std::dec << ")" << std::endl;
+            }
+
+            // Track name usage
+            nameCount[function.name]++;
+        }
+
+        // Second pass: rename duplicates
+        std::unordered_map<std::string, int> currentIndex;
+        for (auto &function : m_functions)
+        {
+            if (nameCount[function.name] > 1)
+            {
+                // This name is duplicated
+                int index = ++currentIndex[function.name];
+                if (index > 1)
+                {
+                    // Not the first occurrence, add suffix
+                    std::string originalName = function.name;
+                    function.name = function.name + "_" + std::to_string(index);
+                    m_renamedFunctions[function.start] = function.name;
+                    std::cout << "Renamed duplicate: " << originalName
+                              << " -> " << function.name
+                              << " (at 0x" << std::hex << function.start << std::dec << ")" << std::endl;
+                }
+            }
+        }
     }
 
     std::string PS2Recompiler::generateRuntimeHeader()

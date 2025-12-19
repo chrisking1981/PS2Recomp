@@ -39,9 +39,11 @@ namespace ps2recomp
         std::unordered_map<uint32_t, std::vector<Instruction>> m_decodedFunctions;
         std::unordered_map<std::string, bool> m_skipFunctions;
         std::map<uint32_t, std::string> m_generatedStubs;
+        std::unordered_map<uint32_t, std::string> m_renamedFunctions; // address -> new name
 
         bool decodeFunction(Function &function);
         bool shouldSkipFunction(const std::string &name) const;
+        void sanitizeFunctionNames();
         std::string generateRuntimeHeader();
         bool generateFunctionHeader();
         bool generateStubHeader();
